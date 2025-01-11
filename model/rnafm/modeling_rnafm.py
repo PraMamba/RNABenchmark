@@ -1253,12 +1253,11 @@ class RnaFmForCRISPROffTarget(RnaFmPreTrainedModel):
         self.config = config
     
         self.rnafm = RnaFmModel(config)
-
-
         self.classifier = nn.Linear(config.hidden_size*2, config.num_labels)
 
         # Initialize weights and apply final processing
         self.post_init()
+        
     def forward(
         self,
         input_ids: Optional[torch.Tensor] = None,
