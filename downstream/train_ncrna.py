@@ -409,7 +409,6 @@ def main():
 	trainer.train()
 
 
-	# get the evaluation results from trainer
 	if model_args.eval_and_save_results:
 		trainer.save_state()
 		safe_save_model_for_hf_trainer(trainer=trainer, output_dir=training_args.output_dir)
