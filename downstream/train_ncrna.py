@@ -31,6 +31,9 @@ from model.rnamsm.modeling_rnamsm import RnaMsmForSequenceClassification
 from model.splicebert.modeling_splicebert import SpliceBertForSequenceClassification
 from model.utrbert.modeling_utrbert import UtrBertForSequenceClassification
 from model.utrlm.modeling_utrlm import UtrLmForSequenceClassification
+from model.dnabert2.bert_layers import DNABERT2ForSequenceClassification
+from model.genalm.modeling_genalm import GENALMForSequenceClassification
+
 from tokenizer.tokenization_opensource import OpenRnaLMTokenizer
 
 logger = logging.getLogger(__name__)
@@ -195,7 +198,7 @@ class DataCollatorForSupervisedDataset(object):
 
 		seqs, labels = tuple([instance[key] for instance in instances] for key in ("input_ids", "labels"))
 
-		output = self.tokenizer(seqs, padding='longest', max_length=self.tokenizer.model_max_length, truncation=True, return_tensors='pt')
+		output = self.tokenizer(seqs, padding='max_length', max_length=self.tokenizer.model_max_length, truncation=True, return_tensors='pt')
 		input_ids = output["input_ids"]
 		attention_mask = output["attention_mask"]
 		labels = torch.Tensor(labels).long()
@@ -209,6 +212,30 @@ class DataCollatorForSupervisedDataset(object):
 Manually calculate the accuracy, f1, matthews_correlation, precision, recall with sklearn.
 """
 def calculate_metric_with_sklearn(logits: np.ndarray, labels: np.ndarray):
+    
+	# # 检查 logits 的类型
+	# print("Type of logits:", type(logits))
+
+	# # 如果 logits 是 tuple，打印其长度和每个元素的形状
+	# if isinstance(logits, tuple):
+	# 	print("Logits is a tuple with length:", len(logits))
+	# 	for idx, element in enumerate(logits):
+	# 		print(f"Element {idx} type: {type(element)}")
+	# 		if isinstance(element, np.ndarray):
+	# 			print(f"Element {idx} shape: {element.shape}")
+	# 		else:
+	# 			print(f"Element {idx} value: {element}")
+	# else:
+	# 	print("Logits shape:", logits.shape)
+
+	# print("Labels:", labels)
+	# print("Labels shape:", labels.shape)
+ 
+ 
+	# 如果 logits 是 tuple，可能需要提取实际 logits 部分
+	if isinstance(logits, tuple):
+		logits = logits[0]  # 假设第一个元素是 logits，具体提取方式根据模型输出确定
+
 	predictions = np.argmax(logits, axis=-1)
 	return {
 		"accuracy": sklearn.metrics.accuracy_score(labels, predictions),
@@ -252,6 +279,7 @@ def main():
 	transformers.utils.logging.enable_default_handler()
 	transformers.utils.logging.enable_explicit_format()
  
+ 
 	# load tokenizer
 	if model_args.model_type == 'rnalm':
 		tokenizer = EsmTokenizer.from_pretrained(
@@ -262,7 +290,7 @@ def main():
 			use_fast=True,
 			trust_remote_code=model_args.trust_remote_code,
 		)
-	elif model_args.model_type in ['RNA-FM','RNABERT','RNA-MSM','SpliceBERT-Human510','SpliceBERT-MS510','SpliceBERT-MS1024','UTRBERT-3mer','UTRBERT-4mer','UTRBERT-5mer','UTRBERT-6mer','UTR-LM-MRL','UTR-LM-TE-EL']:
+	elif model_args.model_type in ['RNA-FM','RNABERT','RNA-MSM','SpliceBERT-Human510','SpliceBERT-MS510','SpliceBERT-MS1024','UTRBERT-3mer','UTRBERT-4mer','UTRBERT-5mer','UTRBERT-6mer','UTR-LM-MRL','UTR-LM-TE-EL', 'DNABERT-2', 'GENA-LM']:
 		tokenizer = OpenRnaLMTokenizer.from_pretrained(
 			model_args.model_name_or_path,
 			cache_dir=model_args.cache_dir,
@@ -281,13 +309,13 @@ def main():
 			trust_remote_code=model_args.trust_remote_code,
 		)
 
-
 	if "InstaDeepAI" in model_args.model_name_or_path:
 		tokenizer.eos_token = tokenizer.pad_token
 	if 'mer' in model_args.token_type:
-		data_args.kmer=int(model_args.token_type[0])
+		data_args.kmer = int(model_args.token_type[0])
   
-	# define datasets and data collator
+  
+	# load datasets and data collator
 	train_dataset = SupervisedDataset\
 	(
 		tokenizer=tokenizer, 
@@ -314,6 +342,7 @@ def main():
  
 	data_collator = DataCollatorForSupervisedDataset(tokenizer=tokenizer,args=training_args)
 	logger.info(f'train: {len(train_dataset)}, val: {len(val_dataset)}, test: {len(test_dataset)}')
+
 
 	# load model
 	if model_args.model_type == 'rnalm':
@@ -392,6 +421,24 @@ def main():
 			problem_type="single_label_classification",
 			trust_remote_code=model_args.trust_remote_code,
 		)
+	elif model_args.model_type == 'DNABERT-2':
+		logger.info(f'Loading {model_args.model_type}')
+		model = DNABERT2ForSequenceClassification.from_pretrained(
+			model_args.model_name_or_path,
+			cache_dir=model_args.cache_dir,
+			num_labels=train_dataset.num_labels,
+			problem_type="single_label_classification",
+			trust_remote_code=model_args.trust_remote_code,
+		)
+	elif 'GENA-LM' in model_args.model_type:
+		logger.info(f'Loading {model_args.model_type}')
+		model = GENALMForSequenceClassification.from_pretrained(
+			model_args.model_name_or_path,
+			cache_dir=model_args.cache_dir,
+			num_labels=train_dataset.num_labels,
+			problem_type="single_label_classification",
+			trust_remote_code=model_args.trust_remote_code,
+		)
 
 
 	early_stopping = EarlyStoppingCallback(early_stopping_patience=20)
@@ -416,7 +463,7 @@ def main():
      
 		results_path = training_args.output_dir
 		results = trainer.evaluate(eval_dataset=test_dataset)
-		logger.info("Evaluation Result On The Test Set:", results)
+		logger.info(f"Evaluation Result On The Test Set: {results}")
 
 		with open(os.path.join(results_path, "test_results.json"), "w") as f:
 			json.dump(results, f, indent=4)
