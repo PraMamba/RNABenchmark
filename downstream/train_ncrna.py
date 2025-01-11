@@ -395,6 +395,7 @@ def main():
 
 
 	early_stopping = EarlyStoppingCallback(early_stopping_patience=20)
+ 
 	trainer = Trainer\
 		(
 			model=model,
