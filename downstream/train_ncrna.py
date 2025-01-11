@@ -311,6 +311,7 @@ def main():
 		data_path=os.path.join(data_args.data_path, data_args.data_test_path),
 		kmer=data_args.kmer
 	)
+ 
 	data_collator = DataCollatorForSupervisedDataset(tokenizer=tokenizer,args=training_args)
 	logger.info(f'train: {len(train_dataset)}, val: {len(val_dataset)}, test: {len(test_dataset)}')
 
