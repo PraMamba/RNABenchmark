@@ -16,6 +16,10 @@ import numpy as np
 from torch.utils.data import Dataset
 import pdb
 
+torch.backends.cuda.matmul.allow_tf32 = True
+torch.backends.cudnn.allow_tf32 = True
+os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
+
 from transformers import Trainer, TrainingArguments, BertTokenizer, EsmTokenizer, EsmModel, AutoConfig, AutoModel, EarlyStoppingCallback
 
 import sys
@@ -33,6 +37,7 @@ from model.utrbert.modeling_utrbert import UtrBertForSequenceClassification
 from model.utrlm.modeling_utrlm import UtrLmForSequenceClassification
 from model.dnabert2.bert_layers import DNABERT2ForSequenceClassification
 from model.genalm.modeling_genalm import GENALMForSequenceClassification
+from model.caduceus.modeling_caduceus import CaduceusForSequenceClassification
 
 from tokenizer.tokenization_opensource import OpenRnaLMTokenizer
 
@@ -198,7 +203,7 @@ class DataCollatorForSupervisedDataset(object):
 
 		seqs, labels = tuple([instance[key] for instance in instances] for key in ("input_ids", "labels"))
 
-		output = self.tokenizer(seqs, padding='max_length', max_length=self.tokenizer.model_max_length, truncation=True, return_tensors='pt')
+		output = self.tokenizer(seqs, padding='max_length', max_length=self.tokenizer.model_max_length, truncation=True, return_tensors='pt', return_attention_mask=True)
 		input_ids = output["input_ids"]
 		attention_mask = output["attention_mask"]
 		labels = torch.Tensor(labels).long()
@@ -257,6 +262,22 @@ def get_parameter_number(model):
 	trainable_num = sum(p.numel() for p in model.parameters() if p.requires_grad)
 	return {'Total': total_num, 'Trainable': trainable_num}
 
+
+SUPPORT_MODEL_TYPE = \
+    [
+        'RNA-FM',
+        'RNABERT',
+        'RNA-MSM',
+        'SpliceBERT-Human510','SpliceBERT-MS510','SpliceBERT-MS1024',
+        'UTRBERT-3mer','UTRBERT-4mer','UTRBERT-5mer','UTRBERT-6mer',
+        'UTR-LM-MRL','UTR-LM-TE-EL', 
+        'DNABERT-2', 
+        'GENA-LM',
+        # 'Caduceus',
+        
+    ]
+
+
 def main():
 	parser = transformers.HfArgumentParser((ModelArguments, DataArguments, TrainingArguments))
 	model_args, data_args, training_args = parser.parse_args_into_dataclasses()
@@ -281,7 +302,7 @@ def main():
  
  
 	# load tokenizer
-	if model_args.model_type == 'rnalm':
+	if model_args.model_type == 'RNALM':
 		tokenizer = EsmTokenizer.from_pretrained(
 			model_args.model_name_or_path,
 			cache_dir=model_args.cache_dir,
@@ -290,13 +311,20 @@ def main():
 			use_fast=True,
 			trust_remote_code=model_args.trust_remote_code,
 		)
-	elif model_args.model_type in ['RNA-FM','RNABERT','RNA-MSM','SpliceBERT-Human510','SpliceBERT-MS510','SpliceBERT-MS1024','UTRBERT-3mer','UTRBERT-4mer','UTRBERT-5mer','UTRBERT-6mer','UTR-LM-MRL','UTR-LM-TE-EL', 'DNABERT-2', 'GENA-LM']:
+	elif model_args.model_type in SUPPORT_MODEL_TYPE:
 		tokenizer = OpenRnaLMTokenizer.from_pretrained(
 			model_args.model_name_or_path,
 			cache_dir=model_args.cache_dir,
 			model_max_length=model_args.model_max_length,
 			padding_side="right",
 			use_fast=True,
+			trust_remote_code=model_args.trust_remote_code,
+		)
+	elif model_args.model_type == 'Caduceus':
+		tokenizer = transformers.AutoTokenizer.from_pretrained(
+			model_args.model_name_or_path,
+			cache_dir=model_args.cache_dir,
+			model_max_length=model_args.model_max_length,
 			trust_remote_code=model_args.trust_remote_code,
 		)
 	else:
@@ -311,6 +339,7 @@ def main():
 
 	if "InstaDeepAI" in model_args.model_name_or_path:
 		tokenizer.eos_token = tokenizer.pad_token
+  
 	if 'mer' in model_args.token_type:
 		data_args.kmer = int(model_args.token_type[0])
   
@@ -345,7 +374,7 @@ def main():
 
 
 	# load model
-	if model_args.model_type == 'rnalm':
+	if model_args.model_type == 'RNALM':
 		if model_args.train_from_scratch:
 			logger.info('Train from scratch')
 			config = RnaLmConfig.from_pretrained(model_args.model_name_or_path,
@@ -439,9 +468,20 @@ def main():
 			problem_type="single_label_classification",
 			trust_remote_code=model_args.trust_remote_code,
 		)
+	elif 'Caduceus' in model_args.model_type:
+		logger.info(f'Loading {model_args.model_type}')
+		model = CaduceusForSequenceClassification.from_pretrained(
+			model_args.model_name_or_path,
+			cache_dir=model_args.cache_dir,
+			num_labels=train_dataset.num_labels,
+			problem_type="single_label_classification",
+			trust_remote_code=model_args.trust_remote_code,
+			ignore_mismatched_sizes=True,
+		)
+		training_args.save_safetensors = False  # Attention: The weights trying to be saved contained shared tensors
 
 
-	early_stopping = EarlyStoppingCallback(early_stopping_patience=20)
+	early_stopping = EarlyStoppingCallback(early_stopping_patience=50)
  
 	trainer = Trainer\
 		(
