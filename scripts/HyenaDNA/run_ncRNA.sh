@@ -5,12 +5,12 @@ export TOKENIZERS_PARALLELISM=false
 
 task='NoncodingRNAFamily'
 token_type='single'
-model_type='Caduceus'
-model_name_or_path="/pri_exthome/Mamba/Dataset/Biology/Caduceus/caduceus-ph_seqlen-131k_d_model-256_n_layer-16"
+model_type='HyenaDNA'
+model_name_or_path="/pri_exthome/Mamba/Dataset/Biology/HyenaDNA/hyenadna-large-1m-seqlen-hf"
 model_max_length=1024
 dataset_dir="/pri_exthome/Mamba/Project/GRE_EMB/Evaluate/BEACON/Data/${task}"
 data_file_train=train.csv; data_file_val=val.csv; data_file_test=test.csv
-output_dir="/pri_exthome/Mamba/Project/GRE_EMB/Evaluate/BEACON/FineTurn/ncRNA/${model_type}/caduceus-ph_seqlen-131k_d_model-256_n_layer-16"
+output_dir="/pri_exthome/Mamba/Project/GRE_EMB/Evaluate/BEACON/FineTurn/ncRNA/${model_type}/hyenadna-large-1m-seqlen-hf"
 cache_dir="/pri_exthome/Mamba/HuggingFace_Cache/cache"
 batch_size=64
 attn_implementation="flash_attention_2"
@@ -38,14 +38,14 @@ common_args=\
     --data_path ${dataset_dir} \
     --data_train_path ${data_file_train} --data_val_path ${data_file_val} --data_test_path ${data_file_test} \
     --model_max_length ${model_max_length} \
-    --num_train_epochs 200 \
+    --num_train_epochs 50 \
     --per_device_train_batch_size ${batch_size} \
     --per_device_eval_batch_size ${batch_size} \
     --learning_rate 2e-3 \
     --optim adamw_torch_fused \
     --lr_scheduler_type cosine \
     --warmup_ratio 0.1 \
-    --weight_decay 0.1 \
+    --weight_decay 0.3 \
     --logging_strategy steps \
     --logging_steps 2 \
     --eval_strategy steps \
@@ -69,7 +69,7 @@ common_args=\
     --fp16 False \
     --attn_implementation ${attn_implementation} \
     --report_to wandb \
-    --ddp_find_unused_parameters False \
+    --ddp_find_unused_parameters True \
     --gradient_checkpointing False \
     --do_train True \
     --do_eval True \

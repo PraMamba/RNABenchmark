@@ -1843,9 +1843,6 @@ class GENALMForSequenceClassification(BertPreTrainedModel):
 
         loss = None
         if labels is not None:
-            # print (f"self.config.problem_type from init: {self.config.problem_type}")
-            # print (f"self.num_labels from init: {self.num_labels}")
-            # print (f"labels.dtype {labels.dtype}")
             if self.config.problem_type is None:
                 if self.num_labels == 1:
                     self.config.problem_type = "regression"
@@ -1853,7 +1850,7 @@ class GENALMForSequenceClassification(BertPreTrainedModel):
                     self.config.problem_type = "single_label_classification"
                 else:
                     self.config.problem_type = "multi_label_classification"
-            # print (f"self.config.problem_type from init: {self.config.problem_type}")
+  
             if self.config.problem_type == "regression":
                 loss_fct = MSELoss()
                 if self.num_labels == 1:
@@ -1861,13 +1858,12 @@ class GENALMForSequenceClassification(BertPreTrainedModel):
                 else:
                     loss = loss_fct(logits, labels)
             elif self.config.problem_type == "single_label_classification":
-                # print (logits)
-                # print (labels)
                 loss_fct = CrossEntropyLoss()
                 loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
             elif self.config.problem_type == "multi_label_classification":
                 loss_fct = BCEWithLogitsLoss(pos_weight=pos_weight)
                 loss = loss_fct(logits, labels)
+        
         if not return_dict:
             output = (logits,) + outputs[2:]
             return ((loss,) + output) if loss is not None else output

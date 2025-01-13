@@ -5,14 +5,14 @@ export TOKENIZERS_PARALLELISM=false
 
 task='NoncodingRNAFamily'
 token_type='single'
-model_type='Caduceus'
-model_name_or_path="/pri_exthome/Mamba/Dataset/Biology/Caduceus/caduceus-ph_seqlen-131k_d_model-256_n_layer-16"
+model_type='Mistral-DNA'
+model_name_or_path="/pri_exthome/Mamba/Dataset/Biology/Mistral-DNA/Mistral-DNA-v1-422M-hg38"
 model_max_length=1024
 dataset_dir="/pri_exthome/Mamba/Project/GRE_EMB/Evaluate/BEACON/Data/${task}"
 data_file_train=train.csv; data_file_val=val.csv; data_file_test=test.csv
-output_dir="/pri_exthome/Mamba/Project/GRE_EMB/Evaluate/BEACON/FineTurn/ncRNA/${model_type}/caduceus-ph_seqlen-131k_d_model-256_n_layer-16"
+output_dir="/pri_exthome/Mamba/Project/GRE_EMB/Evaluate/BEACON/FineTurn/ncRNA/${model_type}/Mistral-DNA-v1-422M-hg38"
 cache_dir="/pri_exthome/Mamba/HuggingFace_Cache/cache"
-batch_size=64
+batch_size=16
 attn_implementation="flash_attention_2"
 seed=42
 
@@ -69,7 +69,7 @@ common_args=\
     --fp16 False \
     --attn_implementation ${attn_implementation} \
     --report_to wandb \
-    --ddp_find_unused_parameters False \
+    --ddp_find_unused_parameters True \
     --gradient_checkpointing False \
     --do_train True \
     --do_eval True \

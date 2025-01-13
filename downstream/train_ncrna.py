@@ -16,11 +16,7 @@ import numpy as np
 from torch.utils.data import Dataset
 import pdb
 
-torch.backends.cuda.matmul.allow_tf32 = True
-torch.backends.cudnn.allow_tf32 = True
-os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
-
-from transformers import Trainer, TrainingArguments, BertTokenizer, EsmTokenizer, EsmModel, AutoConfig, AutoModel, EarlyStoppingCallback
+from transformers import Trainer, TrainingArguments, AutoTokenizer, EsmTokenizer, AutoConfig, AutoModel, AutoModelForSequenceClassification, EarlyStoppingCallback
 
 import sys
 current_path = os.path.dirname(os.path.abspath(__file__))
@@ -38,6 +34,9 @@ from model.utrlm.modeling_utrlm import UtrLmForSequenceClassification
 from model.dnabert2.bert_layers import DNABERT2ForSequenceClassification
 from model.genalm.modeling_genalm import GENALMForSequenceClassification
 from model.caduceus.modeling_caduceus import CaduceusForSequenceClassification
+from model.nucleotide_transformer.modeling_nt import EsmForSequenceClassification
+from model.evo.modeling_hyena import StripedHyenaForSequenceClassification
+from model.hyenadna.modeling_hyena import HyenaDNAForSequenceClassification
 
 from tokenizer.tokenization_opensource import OpenRnaLMTokenizer
 
@@ -64,7 +63,6 @@ class ModelArguments:
 	model_max_length: int = field(default=512, metadata={"help": "The maximum total input sequence length after tokenization. Sequences longer than this will be truncated."})
 	checkpointing: bool = field(default=False)
 	eval_and_save_results: bool = field(default=True)
-	stage: str = field(default='0')
 	model_type: str = field(default='rna')
 	token_type: str = field(default='6mer')
 	train_from_scratch: bool = field(default=False)
@@ -263,7 +261,7 @@ def get_parameter_number(model):
 	return {'Total': total_num, 'Trainable': trainable_num}
 
 
-SUPPORT_MODEL_TYPE = \
+SUPPORT_CUSTOMED_MODEL_TYPE = \
     [
         'RNA-FM',
         'RNABERT',
@@ -273,7 +271,16 @@ SUPPORT_MODEL_TYPE = \
         'UTR-LM-MRL','UTR-LM-TE-EL', 
         'DNABERT-2', 
         'GENA-LM',
-        # 'Caduceus',
+        
+    ]
+    
+SUPPORT_AUTO_MODEL_TYPE = \
+    [
+        'Caduceus',
+        'Nucleotide-Transformer',
+        # 'Evo',
+        'Mistral-DNA',
+        # 'HyenaDNA',
         
     ]
 
@@ -311,7 +318,7 @@ def main():
 			use_fast=True,
 			trust_remote_code=model_args.trust_remote_code,
 		)
-	elif model_args.model_type in SUPPORT_MODEL_TYPE:
+	elif model_args.model_type in SUPPORT_CUSTOMED_MODEL_TYPE:
 		tokenizer = OpenRnaLMTokenizer.from_pretrained(
 			model_args.model_name_or_path,
 			cache_dir=model_args.cache_dir,
@@ -320,15 +327,34 @@ def main():
 			use_fast=True,
 			trust_remote_code=model_args.trust_remote_code,
 		)
-	elif model_args.model_type == 'Caduceus':
-		tokenizer = transformers.AutoTokenizer.from_pretrained(
+	elif model_args.model_type in SUPPORT_AUTO_MODEL_TYPE:
+		tokenizer = AutoTokenizer.from_pretrained(
 			model_args.model_name_or_path,
 			cache_dir=model_args.cache_dir,
 			model_max_length=model_args.model_max_length,
 			trust_remote_code=model_args.trust_remote_code,
 		)
+	elif model_args.model_type == 'Evo':
+		tokenizer = AutoTokenizer.from_pretrained(
+			model_args.model_name_or_path,
+			cache_dir=model_args.cache_dir,
+			model_max_length=model_args.model_max_length,
+			trust_remote_code=model_args.trust_remote_code,
+			cls_token="@",
+			eos_token="&",
+			bos_token="^",
+			pad_token='N',
+		)
+	elif model_args.model_type == 'HyenaDNA':
+		tokenizer = AutoTokenizer.from_pretrained(
+			model_args.model_name_or_path,
+			cache_dir=model_args.cache_dir,
+			model_max_length=model_args.model_max_length,
+			trust_remote_code=model_args.trust_remote_code,
+			padding_side="right",
+		)
 	else:
-		tokenizer = transformers.AutoTokenizer.from_pretrained(
+		tokenizer = AutoTokenizer.from_pretrained(
 			model_args.model_name_or_path,
 			cache_dir=model_args.cache_dir,
 			model_max_length=model_args.model_max_length,
@@ -423,7 +449,7 @@ def main():
 			problem_type="single_label_classification",
 			trust_remote_code=model_args.trust_remote_code,
 		)
-	elif 'SpliceBERT' in model_args.model_type:
+	elif model_args.model_type == 'SpliceBERT':
 		logger.info(f'Loading {model_args.model_type}')
 		model = SpliceBertForSequenceClassification.from_pretrained(
 			model_args.model_name_or_path,
@@ -432,7 +458,7 @@ def main():
 			problem_type="single_label_classification",
 			trust_remote_code=model_args.trust_remote_code,
 		)
-	elif 'UTRBERT' in model_args.model_type:
+	elif model_args.model_type == 'UTRBERT':
 		logger.info(f'Loading {model_args.model_type}')
 		model = UtrBertForSequenceClassification.from_pretrained(
 			model_args.model_name_or_path,
@@ -441,7 +467,7 @@ def main():
 			problem_type="single_label_classification",
 			trust_remote_code=model_args.trust_remote_code,
 		)
-	elif 'UTR-LM' in model_args.model_type:
+	elif model_args.model_type == 'UTR-LM':
 		logger.info(f'Loading {model_args.model_type}')
 		model = UtrLmForSequenceClassification.from_pretrained(
 			model_args.model_name_or_path,
@@ -459,7 +485,7 @@ def main():
 			problem_type="single_label_classification",
 			trust_remote_code=model_args.trust_remote_code,
 		)
-	elif 'GENA-LM' in model_args.model_type:
+	elif model_args.model_type == 'GENA-LM':
 		logger.info(f'Loading {model_args.model_type}')
 		model = GENALMForSequenceClassification.from_pretrained(
 			model_args.model_name_or_path,
@@ -468,7 +494,7 @@ def main():
 			problem_type="single_label_classification",
 			trust_remote_code=model_args.trust_remote_code,
 		)
-	elif 'Caduceus' in model_args.model_type:
+	elif model_args.model_type == 'Caduceus':
 		logger.info(f'Loading {model_args.model_type}')
 		model = CaduceusForSequenceClassification.from_pretrained(
 			model_args.model_name_or_path,
@@ -478,10 +504,49 @@ def main():
 			trust_remote_code=model_args.trust_remote_code,
 			ignore_mismatched_sizes=True,
 		)
-		training_args.save_safetensors = False  # Attention: The weights trying to be saved contained shared tensors
+		training_args.save_safetensors = False  # Attention: The weights trying to be saved contained shared tensors, save model weight in *.bin
+	elif model_args.model_type == 'Nucleotide-Transformer':
+		logger.info(f'Loading {model_args.model_type}')
+		model = EsmForSequenceClassification.from_pretrained(
+			model_args.model_name_or_path,
+			cache_dir=model_args.cache_dir,
+			num_labels=train_dataset.num_labels,
+			problem_type="single_label_classification",
+			trust_remote_code=model_args.trust_remote_code,
+		)
+	elif model_args.model_type == 'Evo':
+		logger.info(f'Loading {model_args.model_type}')
+		model = StripedHyenaForSequenceClassification.from_pretrained(
+			model_args.model_name_or_path,
+			cache_dir=model_args.cache_dir,
+			num_labels=train_dataset.num_labels,
+			problem_type="single_label_classification",
+			trust_remote_code=model_args.trust_remote_code,
+		)
+	elif model_args.model_type == 'Mistral-DNA':
+		logger.info(f'Loading {model_args.model_type}')
+		model = AutoModelForSequenceClassification.from_pretrained(
+			model_args.model_name_or_path,
+			cache_dir=model_args.cache_dir,
+			num_labels=train_dataset.num_labels,
+			problem_type="single_label_classification",
+			trust_remote_code=model_args.trust_remote_code,
+		)
+		if tokenizer.pad_token is None:
+			tokenizer.pad_token = tokenizer.eos_token
+		model.config.pad_token_id = tokenizer.pad_token_id
+	elif model_args.model_type == 'HyenaDNA':
+		logger.info(f'Loading {model_args.model_type}')
+		model = HyenaDNAForSequenceClassification.from_pretrained(
+			model_args.model_name_or_path,
+			cache_dir=model_args.cache_dir,
+			num_labels=train_dataset.num_labels,
+			problem_type="single_label_classification",
+			trust_remote_code=model_args.trust_remote_code,
+		)
+		training_args.save_safetensors = False  # Attention: The weights trying to be saved contained shared tensors, save model weight in *.bin
 
-
-	early_stopping = EarlyStoppingCallback(early_stopping_patience=50)
+	early_stopping = EarlyStoppingCallback(early_stopping_patience=10)
  
 	trainer = Trainer\
 		(
