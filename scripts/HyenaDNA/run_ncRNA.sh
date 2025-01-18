@@ -6,7 +6,7 @@ export TOKENIZERS_PARALLELISM=false
 task='NoncodingRNAFamily'
 token_type='single'
 model_type='HyenaDNA'
-model_name_or_path="/pri_exthome/Mamba/Dataset/Biology/HyenaDNA/hyenadna-large-1m-seqlen-hf"
+model_name_or_path="/pri_exthome/Mamba/Project/GRE_EMB/Evaluate/BEACON/Pretrain/HyenaDNA/hyenadna-large-1m-seqlen-hf"
 model_max_length=1024
 dataset_dir="/pri_exthome/Mamba/Project/GRE_EMB/Evaluate/BEACON/Data/${task}"
 data_file_train=train.csv; data_file_val=val.csv; data_file_test=test.csv
@@ -79,7 +79,7 @@ common_args=\
     --cache_dir ${cache_dir} \
     --token_type ${token_type} \
     --model_type ${model_type} \
-    --run_name ncRNA_${model_type}
+    --run_name ${task}_${model_type}
 "
 
 

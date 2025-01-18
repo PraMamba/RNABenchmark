@@ -6,11 +6,11 @@ export TOKENIZERS_PARALLELISM=false
 task='NoncodingRNAFamily'
 token_type='single'
 model_type='Nucleotide-Transformer'
-model_name_or_path="/pri_exthome/Mamba/Dataset/Biology/Nucleotide-Transformer/nucleotide-transformer-v2-500m-multi-species"
+model_name_or_path="/pri_exthome/Mamba/Project/GRE_EMB/Evaluate/BEACON/Pretrain/Nucleotide-Transformer/nucleotide-transformer-v2-500m-multi-species"
 model_max_length=1024
 dataset_dir="/pri_exthome/Mamba/Project/GRE_EMB/Evaluate/BEACON/Data/${task}"
 data_file_train=train.csv; data_file_val=val.csv; data_file_test=test.csv
-output_dir="/pri_exthome/Mamba/Project/GRE_EMB/Evaluate/BEACON/FineTurn/ncRNA/${model_type}/nucleotide-transformer-v2-500m-multi-species"
+output_dir="/pri_exthome/Mamba/Project/GRE_EMB/Evaluate/BEACON/FineTurn/${task}/${model_type}/nucleotide-transformer-v2-500m-multi-species"
 cache_dir="/pri_exthome/Mamba/HuggingFace_Cache/cache"
 batch_size=16
 attn_implementation="flash_attention_2"
@@ -79,7 +79,7 @@ common_args=\
     --cache_dir ${cache_dir} \
     --token_type ${token_type} \
     --model_type ${model_type} \
-    --run_name ncRNA_${model_type}
+    --run_name ${task}_${model_type}
 "
 
 

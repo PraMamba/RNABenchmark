@@ -14,7 +14,6 @@ import transformers
 
 import numpy as np
 from torch.utils.data import Dataset
-import pdb
 
 from transformers import Trainer, TrainingArguments, AutoTokenizer, EsmTokenizer, AutoConfig, AutoModel, AutoModelForSequenceClassification, EarlyStoppingCallback
 
@@ -44,60 +43,212 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ModelArguments:
-	model_name_or_path: Optional[str] = field(
-		default=None,
-		metadata={
-			"help": (
-				"The model checkpoint for weights initialization. Don't set if you want to train a model from scratch."
-			)
-		},
-	)
-	use_lora: bool = field(default=False, metadata={"help": "whether to use LoRA"})
-	use_alibi: bool = field(default=True, metadata={"help": "whether to use alibi"})
-	use_features: bool = field(default=True, metadata={"help": "whether to use alibi"})
-	lora_r: int = field(default=8, metadata={"help": "hidden dimension for LoRA"})
-	lora_alpha: int = field(default=32, metadata={"help": "alpha for LoRA"})
-	lora_dropout: float = field(default=0.05, metadata={"help": "dropout rate for LoRA"})
-	lora_target_modules: str = field(default="query,value", metadata={"help": "where to perform LoRA"})
-	tokenizer_name_or_path: Optional[str] = field(default="")
-	model_max_length: int = field(default=512, metadata={"help": "The maximum total input sequence length after tokenization. Sequences longer than this will be truncated."})
-	checkpointing: bool = field(default=False)
-	eval_and_save_results: bool = field(default=True)
-	model_type: str = field(default='rna')
-	token_type: str = field(default='6mer')
-	train_from_scratch: bool = field(default=False)
-	attn_implementation: Optional[str] = field(
-		default="eager",
-		metadata={
-			"help": (
-				"The attention implementation to use in the model (if relevant)."
-			),
-			"choices": ["eager", "sdpa", "flash_attention_2"],
-		},
-	)
-	trust_remote_code: bool = field(
-		default=False,
-		metadata={
-			"help": (
-				"Whether to trust the execution of code from datasets/models defined on the Hub."
-				" This option should only be set to `True` for repositories you trust and in which you have read the"
-				" code, as it will execute code present on the Hub on your local machine."
-			)
-		},
-	)
-	cache_dir: Optional[str] = field(
-		default=None,
-		metadata={"help": "Where do you want to store the pretrained models downloaded from huggingface.co"},
-	)
+    model_name_or_path: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": (
+                "The path or identifier of the model checkpoint for initializing weights. "
+                "If you want to train a model from scratch, leave this field empty. "
+                "Typically used to load pre-trained models from a local path or Hugging Face Hub."
+            )
+        },
+    )
+    use_lora: bool = field(
+        default=False,
+        metadata={
+            "help": (
+                "Whether to use LoRA (Low-Rank Adaptation) for fine-tuning. "
+                "LoRA can help reduce the number of trainable parameters, making the training more efficient."
+            )
+        },
+    )
+    use_alibi: bool = field(
+        default=True,
+        metadata={
+            "help": (
+                "Whether to use ALiBi (Attention with Linear Biases) mechanism. "
+                "This is typically used to improve the model's performance on long sequence inputs."
+            )
+        },
+    )
+    use_features: bool = field(
+        default=True,
+        metadata={
+            "help": (
+                "Whether to use additional sequence features, such as structural or chemical properties, "
+                "as input to the model."
+            )
+        },
+    )
+    lora_r: int = field(
+        default=8,
+        metadata={
+            "help": (
+                "The rank (r) for the low-rank decomposition in LoRA. "
+                "Higher values may capture more complex representations but increase the parameter count."
+            )
+        },
+    )
+    lora_alpha: int = field(
+        default=32,
+        metadata={
+            "help": (
+                "Scaling factor (alpha) for LoRA. "
+                "This affects the scaling of the adapted weights during training."
+            )
+        },
+    )
+    lora_dropout: float = field(
+        default=0.05,
+        metadata={
+            "help": (
+                "Dropout rate for LoRA layers to prevent overfitting. "
+                "Recommended values are in the range [0.0, 0.2]."
+            )
+        },
+    )
+    lora_target_modules: str = field(
+        default="query,value",
+        metadata={
+            "help": (
+                "Specifies which modules (e.g., attention query/value layers) should be adapted using LoRA. "
+                "Provide a comma-separated list of module names."
+            )
+        },
+    )
+    tokenizer_name_or_path: Optional[str] = field(
+        default="",
+        metadata={
+            "help": (
+                "The path or identifier of the tokenizer to use. "
+                "If not provided, the tokenizer will default to the model's tokenizer (if available)."
+            )
+        },
+    )
+    model_max_length: int = field(
+        default=512,
+        metadata={
+            "help": (
+                "The maximum total input sequence length after tokenization. "
+                "Sequences longer than this will be truncated. "
+                "This parameter is critical for memory management during training."
+            )
+        },
+    )
+    eval_and_save_results: bool = field(
+        default=True,
+        metadata={
+            "help": (
+                "Whether to evaluate the model and save results during or after training. "
+                "If disabled, evaluation metrics will not be calculated."
+            )
+        },
+    )
+    model_type: str = field(
+        default="rna",
+        metadata={
+            "help": (
+                "Specifies the type of model architecture to use. "
+                "For example: 'rna' for RNA-related tasks or other model-specific types."
+            )
+        },
+    )
+    token_type: str = field(
+        default="6mer",
+        metadata={
+            "help": (
+                "The type of tokenization used for input sequences. "
+                "For example: '6mer' represents k-mer tokens of length 6."
+            )
+        },
+    )
+    train_from_scratch: bool = field(
+        default=False,
+        metadata={
+            "help": (
+                "Whether to train the model from scratch. "
+                "If set to True, model weights will not be initialized from a pre-trained checkpoint."
+            )
+        },
+    )
+    attn_implementation: Optional[str] = field(
+        default="eager",
+        metadata={
+            "help": (
+                "The attention mechanism implementation to use in the model. "
+                "Options include 'eager' for standard attention, 'sdpa' for scaled dot-product attention, "
+                "and 'flash_attention_2' for optimized memory-efficient attention."
+            ),
+            "choices": ["eager", "sdpa", "flash_attention_2"],
+        },
+    )
+    trust_remote_code: bool = field(
+        default=False,
+        metadata={
+            "help": (
+                "Whether to trust and execute remote code from the Hugging Face Hub. "
+                "Only enable this option for trusted repositories after reviewing their code."
+            )
+        },
+    )
+    cache_dir: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": (
+                "The directory where pre-trained models and tokenizer files from Hugging Face Hub will be stored locally."
+            )
+        },
+    )
 
 
 @dataclass
 class DataArguments:
-	data_path: str = field(default=None, metadata={"help": "Path to the training data."})
-	kmer: int = field(default=-1, metadata={"help": "k-mer for input sequence. -1 means not using k-mer."})
-	data_train_path: str = field(default=None, metadata={"help": "Path to the training data."})
-	data_val_path: str = field(default=None, metadata={"help": "Path to the training data."})
-	data_test_path: str = field(default=None, metadata={"help": "Path to the test data. is list"})
+    data_path: str = field(
+        default=None,
+        metadata={
+            "help": (
+                "Path to the directory containing the dataset files. "
+                "This path should include training, validation, and test datasets, depending on the task."
+            )
+        },
+    )
+    kmer: int = field(
+        default=-1,
+        metadata={
+            "help": (
+                "The k-mer length for input sequence tokenization. "
+                "Set to -1 to disable k-mer tokenization, or specify a positive integer for the k-mer size."
+            )
+        },
+    )
+    data_train_path: str = field(
+        default=None,
+        metadata={
+            "help": (
+                "Path to the training data file. "
+                "The file should contain sequences and corresponding labels formatted for the task."
+            )
+        },
+    )
+    data_val_path: str = field(
+        default=None,
+        metadata={
+            "help": (
+                "Path to the validation data file. "
+                "This file is used to evaluate the model's performance during training."
+            )
+        },
+    )
+    data_test_path: str = field(
+        default=None,
+        metadata={
+            "help": (
+                "Path to the test data file(s). "
+                "This can be a list of paths for multiple test datasets. "
+                "The test dataset is used to evaluate the final model."
+            )
+        },
+    )
 
 
 def safe_save_model_for_hf_trainer(trainer: transformers.Trainer, output_dir: str):
@@ -161,7 +312,6 @@ class SupervisedDataset(Dataset):
 		else:
 			logger.info(len(data[0]))
 			raise ValueError("Data format not supported.")
-		text = texts[0]
 
 		if kmer != -1:
 			# only write file on the first process
@@ -205,39 +355,81 @@ class DataCollatorForSupervisedDataset(object):
 		input_ids = output["input_ids"]
 		attention_mask = output["attention_mask"]
 		labels = torch.Tensor(labels).long()
-		return dict(
+  
+		return dict\
+		(
 			input_ids=input_ids,
 			labels=labels,
 			attention_mask=attention_mask,
 		)
 
+@dataclass
+class EvoDataCollatorForSupervisedDataset(object):
+    def __init__(self, tokenizer: transformers.PreTrainedTokenizer, args):
+        self.tokenizer = tokenizer
+        self.args = args
+
+    def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
+        # 提取每个实例的 input_ids 和 labels
+        seqs, labels = tuple([instance[key] for instance in instances] for key in ("input_ids", "labels"))
+        
+        # 获取 EOS token
+        eos_token = self.tokenizer.eos_token
+        if eos_token is None:
+            raise ValueError("The tokenizer does not have an EOS token defined.")
+
+        # 为每个序列添加 EOS token
+        seqs_with_eos = [seq + eos_token for seq in seqs]
+
+        # 使用分词器对序列进行批量处理，包括填充和截断
+        output = self.tokenizer(
+            seqs_with_eos,
+            padding='max_length',
+            max_length=self.tokenizer.model_max_length,
+            truncation=True,
+            return_tensors='pt',
+            return_attention_mask=True
+        )
+        input_ids = output["input_ids"]
+        attention_mask = output["attention_mask"]
+
+        # 将 labels 转换为 LongTensor
+        labels = torch.tensor(labels, dtype=torch.long)
+
+        # 计算每个序列中 EOS 标记的位置索引
+        eos_token_id = self.tokenizer.eos_token_id
+        eos_indices = []
+        if eos_token_id is not None:
+            # 对每个序列查找最后一个 EOS 标记的位置
+            for seq in input_ids:
+                seq_list = seq.tolist()
+                try:
+                    # 查找序列中最后一次出现 EOS 标记的位置
+                    idx = len(seq_list) - 1 - seq_list[::-1].index(eos_token_id)
+                except ValueError:
+                    # 如果序列中没有 EOS 标记，则使用序列的实际长度减1
+                    idx = len(seq_list) - 1
+                eos_indices.append(idx)
+            eos_indices = torch.tensor(eos_indices, dtype=torch.long)
+        else:
+            # 如果没有定义 EOS 标记，可以设置为空张量或其他默认处理
+            eos_indices = torch.empty(input_ids.size(0), dtype=torch.long)
+
+        return dict(
+            input_ids=input_ids,
+            labels=labels,
+            attention_mask=attention_mask,
+            eos_index=eos_indices.unsqueeze(1)  # 新增的 EOS 索引字段
+        )
+
 """
 Manually calculate the accuracy, f1, matthews_correlation, precision, recall with sklearn.
 """
 def calculate_metric_with_sklearn(logits: np.ndarray, labels: np.ndarray):
-    
-	# # 检查 logits 的类型
-	# print("Type of logits:", type(logits))
-
-	# # 如果 logits 是 tuple，打印其长度和每个元素的形状
-	# if isinstance(logits, tuple):
-	# 	print("Logits is a tuple with length:", len(logits))
-	# 	for idx, element in enumerate(logits):
-	# 		print(f"Element {idx} type: {type(element)}")
-	# 		if isinstance(element, np.ndarray):
-	# 			print(f"Element {idx} shape: {element.shape}")
-	# 		else:
-	# 			print(f"Element {idx} value: {element}")
-	# else:
-	# 	print("Logits shape:", logits.shape)
-
-	# print("Labels:", labels)
-	# print("Labels shape:", labels.shape)
- 
  
 	# 如果 logits 是 tuple，可能需要提取实际 logits 部分
 	if isinstance(logits, tuple):
-		logits = logits[0]  # 假设第一个元素是 logits，具体提取方式根据模型输出确定
+		logits = logits[0]  # 假设第一个元素是 logits
 
 	predictions = np.argmax(logits, axis=-1)
 	return {
@@ -248,12 +440,29 @@ def calculate_metric_with_sklearn(logits: np.ndarray, labels: np.ndarray):
 		"recall": sklearn.metrics.recall_score(labels, predictions, average="macro", zero_division=0),
 	}
 
+
+def evo_calculate_metric_with_sklearn(logits: np.ndarray, labels: np.ndarray):
+    
+	# 如果 logits 是 tuple，可能需要提取实际 logits 部分
+	if isinstance(logits, tuple):
+		logits = logits[0]  # 假设第一个元素是 logits
+
+	predictions = np.argmax(logits, axis=2).T[0]
+	return {
+		"accuracy": sklearn.metrics.accuracy_score(labels, predictions),
+		"f1": sklearn.metrics.f1_score(labels, predictions, average="macro", zero_division=0),
+		"matthews_correlation": sklearn.metrics.matthews_corrcoef(labels, predictions),
+		"precision": sklearn.metrics.precision_score(labels, predictions, average="macro", zero_division=0),
+		"recall": sklearn.metrics.recall_score(labels, predictions, average="macro", zero_division=0),
+	}
+
+
 """
 Compute metrics used for huggingface trainer.
 """
 def compute_metrics(eval_pred):
 	logits, labels = eval_pred
-	return calculate_metric_with_sklearn(logits, labels)
+	return evo_calculate_metric_with_sklearn(logits, labels)
 
 def get_parameter_number(model):
 	total_num = sum(p.numel() for p in model.parameters())
@@ -395,7 +604,7 @@ def main():
 		kmer=data_args.kmer
 	)
  
-	data_collator = DataCollatorForSupervisedDataset(tokenizer=tokenizer,args=training_args)
+	data_collator = DataCollatorForSupervisedDataset(tokenizer=tokenizer,args=training_args) if model_args.model_type != 'Evo' else EvoDataCollatorForSupervisedDataset(tokenizer=tokenizer,args=training_args)
 	logger.info(f'train: {len(train_dataset)}, val: {len(val_dataset)}, test: {len(test_dataset)}')
 
 
@@ -523,6 +732,7 @@ def main():
 			problem_type="single_label_classification",
 			trust_remote_code=model_args.trust_remote_code,
 		)
+		model.config.use_cache = False
 	elif model_args.model_type == 'Mistral-DNA':
 		logger.info(f'Loading {model_args.model_type}')
 		model = AutoModelForSequenceClassification.from_pretrained(

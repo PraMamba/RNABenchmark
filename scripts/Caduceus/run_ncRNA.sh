@@ -6,7 +6,7 @@ export TOKENIZERS_PARALLELISM=false
 task='NoncodingRNAFamily'
 token_type='single'
 model_type='Caduceus'
-model_name_or_path="/pri_exthome/Mamba/Dataset/Biology/Caduceus/caduceus-ph_seqlen-131k_d_model-256_n_layer-16"
+model_name_or_path="/pri_exthome/Mamba/Project/GRE_EMB/Evaluate/BEACON/Pretrain/Caduceus/caduceus-ph_seqlen-131k_d_model-256_n_layer-16"
 model_max_length=1024
 dataset_dir="/pri_exthome/Mamba/Project/GRE_EMB/Evaluate/BEACON/Data/${task}"
 data_file_train=train.csv; data_file_val=val.csv; data_file_test=test.csv

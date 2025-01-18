@@ -10,7 +10,7 @@ model_name_or_path="/pri_exthome/Mamba/Project/GRE_EMB/Evaluate/BEACON/Pretrain/
 model_max_length=512
 dataset_dir="/pri_exthome/Mamba/Project/GRE_EMB/Evaluate/BEACON/Data/${task}"
 data_file_train=train.csv; data_file_val=val.csv; data_file_test=test.csv
-output_dir="/pri_exthome/Mamba/Project/GRE_EMB/Evaluate/BEACON/FineTurn/ncRNA/${model_type}"
+output_dir="/pri_exthome/Mamba/Project/GRE_EMB/Evaluate/BEACON/FineTurn/${task}/${model_type}"
 cache_dir="/pri_exthome/Mamba/HuggingFace_Cache/cache"
 batch_size=16
 attn_implementation="flash_attention_2"
@@ -69,7 +69,7 @@ common_args=\
     --fp16 False \
     --attn_implementation ${attn_implementation} \
     --report_to wandb \
-    --ddp_find_unused_parameters False \
+    --ddp_find_unused_parameters True \
     --gradient_checkpointing False \
     --do_train True \
     --do_eval True \
