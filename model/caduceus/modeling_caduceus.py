@@ -569,6 +569,7 @@ class CaduceusForSequenceClassification(CaduceusPreTrainedModel):
         self,
         input_ids: torch.LongTensor = None,
         inputs_embeds: Optional[torch.FloatTensor] = None,
+        attention_mask: Optional[torch.Tensor] = None,
         labels: Optional[torch.LongTensor] = None,
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
@@ -653,6 +654,7 @@ class CaduceusForSequenceClassification(CaduceusPreTrainedModel):
                 loss = F.cross_entropy(logits.view(-1, self.num_labels), labels.view(-1))
             elif self.config.problem_type == "multi_label_classification":
                 loss = F.binary_cross_entropy_with_logits(logits, labels)
+                
         if not return_dict:
             output = (logits,) + transformer_outputs[1:]
             return ((loss,) + output) if loss is not None else output

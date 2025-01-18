@@ -1082,7 +1082,6 @@ class RnaFmForSequenceClassification(RnaFmPreTrainedModel):
                     self.config.problem_type = "single_label_classification"
                 else:
                     self.config.problem_type = "multi_label_classification"
-            #print(self.config.problem_type)
             if self.config.problem_type == "regression":
                 loss_fct = MSELoss()
                 if self.num_labels == 1:
@@ -1113,22 +1112,24 @@ class RnaFmForNucleotideLevel(RnaFmPreTrainedModel):
         super().__init__(config)
         self.num_labels = config.num_labels
         self.config = config
+        self.config.token_type = 'single'
     
         self.rnafm = RnaFmModel(config)
        
         self.tokenizer = tokenizer
-        if self.config.token_type == 'bpe' or  self.config.token_type=='non-overlap':
+        if self.config.token_type == 'bpe' or  self.config.token_type == 'non-overlap':
             self.classifier_a = nn.Linear(config.hidden_size, config.num_labels)
             self.classifier_t = nn.Linear(config.hidden_size, config.num_labels)
             self.classifier_c = nn.Linear(config.hidden_size, config.num_labels)
             self.classifier_g = nn.Linear(config.hidden_size, config.num_labels)
             self.classifier_n = nn.Linear(config.hidden_size, config.num_labels)
-            self.classifer_dict = {
-                'A': self.classifier_a,
-                'T': self.classifier_t,
-                'C': self.classifier_c,
-                'G': self.classifier_g,
-                'N': self.classifier_n,
+            self.classifer_dict =  \
+                {
+                    'A': self.classifier_a,
+                    'T': self.classifier_t,
+                    'C': self.classifier_c,
+                    'G': self.classifier_g,
+                    'N': self.classifier_n,
                 }
         else:
             self.classifier = nn.Linear(config.hidden_size, config.num_labels)
@@ -1178,9 +1179,9 @@ class RnaFmForNucleotideLevel(RnaFmPreTrainedModel):
         cur_length = int(final_input.shape[1])
 
         if self.config.token_type == 'single':
-            assert attention_mask.shape==weight_mask.shape==post_token_length.shape
+            assert attention_mask.shape == weight_mask.shape == post_token_length.shape
             mapping_final_input = final_input
-        elif self.config.token_type == 'bpe' or  self.config.token_type=='non-overlap':
+        elif self.config.token_type == 'bpe' or self.config.token_type=='non-overlap':
             logits = torch.zeros((batch_size, ori_length, self.num_labels), dtype=final_input.dtype, device=final_input.device)
             nucleotide_indices = {nucleotide: (input_ids == self.tokenizer.encode(nucleotide, add_special_tokens=False)[0]).nonzero() for nucleotide in 'ATCGN'}
             mapping_final_input = torch.zeros((batch_size, ori_length, final_input.shape[-1]), dtype=final_input.dtype, device=final_input.device)
@@ -1198,20 +1199,19 @@ class RnaFmForNucleotideLevel(RnaFmPreTrainedModel):
                     nucleotide_logits = self.classifer_dict[nucleotide](mapping_final_input[bz_indices, pos_indices])
                     nucleotide_logits = nucleotide_logits.to(logits.dtype)
                     logits.index_put_((bz_indices, pos_indices), nucleotide_logits)
-    
         elif self.config.token_type == '6mer':
             mapping_final_input = torch.zeros((batch_size, ori_length, final_input.shape[-1]), dtype=final_input.dtype, device=final_input.device)
-            mapping_final_input[:,0,:] = final_input[:,0,:] #[cls] token
+            mapping_final_input[:,0,:] = final_input[:,0,:]                 # [cls] token
             for bz in range(batch_size):
                 value_length = torch.sum(attention_mask[bz,:]==1).item()
-                for i in range(1,value_length-1): #exclude cls,sep token
+                for i in range(1,value_length-1):                           # exclude cls,sep token
                     mapping_final_input[bz,i:i+6,:] += final_input[bz,i]
-                mapping_final_input[bz,value_length+5-1,:] = final_input[bz,value_length-1,:] #[sep] token
-        #print(mapping_final_input.shape,weight_mask.shape)
+                mapping_final_input[bz,value_length+5-1,:] = final_input[bz,value_length-1,:]   # [sep] token
+                
         mapping_final_input = mapping_final_input * weight_mask.unsqueeze(2)
+        
         if self.config.token_type == '6mer' or self.config.token_type =='single': 
             logits = self.classifier(mapping_final_input)
-        #print(logits.shape)
         
         loss = None
         if labels is not None:
@@ -1239,12 +1239,14 @@ class RnaFmForNucleotideLevel(RnaFmPreTrainedModel):
         if not return_dict:
             output = (logits,) + outputs[2:]
             return ((loss,) + output) if loss is not None else output
+        
         return SequenceClassifierOutput(
             loss=loss,
             logits=logits,
             hidden_states=outputs.hidden_states,
             attentions=outputs.attentions,
         )
+
 
 class RnaFmForCRISPROffTarget(RnaFmPreTrainedModel):
     def __init__(self, config):
@@ -1281,7 +1283,6 @@ class RnaFmForCRISPROffTarget(RnaFmPreTrainedModel):
         """
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
         
-        
         sgrna_out = self.rnafm(
             input_ids,
             attention_mask=attention_mask,
@@ -1290,6 +1291,7 @@ class RnaFmForCRISPROffTarget(RnaFmPreTrainedModel):
             head_mask=head_mask,
             inputs_embeds=inputs_embeds,
         )[1]
+        
         target_out = self.rnafm(
             target_input_ids,
             attention_mask=target_attention_mask,
@@ -1298,8 +1300,10 @@ class RnaFmForCRISPROffTarget(RnaFmPreTrainedModel):
             head_mask=head_mask,
             inputs_embeds=inputs_embeds,
         )[1]
+        
         final_input = torch.cat([sgrna_out,target_out],dim=-1)
         logits = self.classifier(final_input)
+        
         loss = None
         if labels is not None:
             if self.config.problem_type is None:
@@ -1309,11 +1313,9 @@ class RnaFmForCRISPROffTarget(RnaFmPreTrainedModel):
                     self.config.problem_type = "single_label_classification"
                 else:
                     self.config.problem_type = "multi_label_classification"
-            #print(self.config.problem_type)
             if self.config.problem_type == "regression":
                 loss_fct = nn.MSELoss()
                 if self.num_labels == 1:
-                    
                     loss = loss_fct(logits.squeeze(), labels.squeeze())
                 else:
                     loss = loss_fct(logits, labels)
@@ -1323,15 +1325,19 @@ class RnaFmForCRISPROffTarget(RnaFmPreTrainedModel):
             elif self.config.problem_type == "multi_label_classification":
                 loss_fct = BCEWithLogitsLoss()
                 loss = loss_fct(logits, labels)
+                
         if not return_dict:
             output = (logits,) + sgrna_out[2:]
             return ((loss,) + output) if loss is not None else output
+        
         return SequenceClassifierOutput(
             loss=loss,
             logits=logits,
             hidden_states=None,
             attentions=None,
         )
+        
+
 class RnaFmForStructuralimputation(RnaFmPreTrainedModel):
     # include Degradation and SpliceAI
     def __init__(self, config, tokenizer=None):

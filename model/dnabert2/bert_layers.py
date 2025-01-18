@@ -900,3 +900,236 @@ class DNABERT2ForSequenceClassification(BertPreTrainedModel):
             attentions=None,
         )
 
+
+class DNABERT2ForNucleotideLevel(BertPreTrainedModel):
+    # include Degradation and SpliceAI
+    def __init__(self, config, tokenizer=None):
+        super().__init__(config)
+        self.num_labels = config.num_labels
+        self.config = config
+    
+        self.bert = BertModel(config)
+       
+        self.tokenizer = tokenizer
+        if self.config.token_type == 'bpe' or self.config.token_type == 'non-overlap':
+            self.classifier_a = nn.Linear(config.hidden_size, config.num_labels)
+            self.classifier_t = nn.Linear(config.hidden_size, config.num_labels)
+            self.classifier_c = nn.Linear(config.hidden_size, config.num_labels)
+            self.classifier_g = nn.Linear(config.hidden_size, config.num_labels)
+            self.classifier_n = nn.Linear(config.hidden_size, config.num_labels)
+            self.classifer_dict = \
+                {
+                    'A': self.classifier_a,
+                    'T': self.classifier_t,
+                    'C': self.classifier_c,
+                    'G': self.classifier_g,
+                    'N': self.classifier_n,
+                }
+        else:
+            self.classifier = nn.Linear(config.hidden_size, config.num_labels)
+        
+        # Initialize weights and apply final processing
+        self.post_init()
+
+
+    def forward(
+        self,
+        input_ids: Optional[torch.Tensor] = None,
+        attention_mask: Optional[torch.Tensor] = None,
+        token_type_ids: Optional[torch.Tensor] = None,
+        position_ids: Optional[torch.Tensor] = None,
+        head_mask: Optional[torch.Tensor] = None,
+        inputs_embeds: Optional[torch.Tensor] = None,
+        labels: Optional[torch.Tensor] = None,
+        output_attentions: Optional[bool] = None,
+        output_hidden_states: Optional[bool] = None,
+        return_dict: Optional[bool] = None,
+        weight_mask: Optional[bool] = None,
+        post_token_length: Optional[bool] = None,
+    ) -> Union[Tuple[torch.Tensor], SequenceClassifierOutput]:
+        r"""
+        labels (`torch.LongTensor` of shape `(batch_size,)`, *optional*):
+            Labels for computing the sequence classification/regression loss. Indices should be in `[0, ...,
+            config.num_labels - 1]`. If `config.num_labels == 1` a regression loss is computed (Mean-Square loss), If
+            `config.num_labels > 1` a classification loss is computed (Cross-Entropy).
+        """
+        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+        
+        outputs = self.bert(
+            input_ids,
+            attention_mask=attention_mask,
+            # token_type_ids=token_type_ids,
+            position_ids=position_ids,
+            head_mask=head_mask,
+            inputs_embeds=inputs_embeds,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states,
+            return_dict=return_dict,
+        )
+        final_input = outputs[0]
+
+        ### init mappint tensor
+        ori_length = weight_mask.shape[1]
+        batch_size = final_input.shape[0]
+        cur_length = int(final_input.shape[1])
+
+        if self.config.token_type == 'single':
+            if not (attention_mask.shape == weight_mask.shape == post_token_length.shape):
+                print(f"Shape mismatch: attention_mask {attention_mask.shape}, weight_mask {weight_mask.shape}, post_token_length {post_token_length.shape}, final_input {final_input.shape}")
+                raise AssertionError("Shape mismatch")
+            mapping_final_input = final_input
+        elif self.config.token_type == 'bpe' or self.config.token_type == 'non-overlap':
+            logits = torch.zeros((batch_size, ori_length, self.num_labels), dtype=final_input.dtype, device=final_input.device)
+            nucleotide_indices = {nucleotide: (input_ids == self.tokenizer.encode(nucleotide, add_special_tokens=False)[0]).nonzero() for nucleotide in 'ATCGN'}
+            mapping_final_input = torch.zeros((batch_size, ori_length, final_input.shape[-1]), dtype=final_input.dtype, device=final_input.device)
+            
+            for bz in range(batch_size):
+                start_index = 0
+                for i, length in enumerate(post_token_length[bz]): #astart from [cls]
+                    mapping_final_input[bz,start_index:start_index + int(length.item()), :] = final_input[bz,i,:]
+                    start_index += int(length.item())
+                    
+            for nucleotide, indices in nucleotide_indices.items(): # indices:[bzid,seqid]
+                if indices.numel() > 0:  
+                    bz_indices, pos_indices = indices.split(1, dim=1)
+                    bz_indices = bz_indices.squeeze(-1) 
+                    pos_indices = pos_indices.squeeze(-1)
+                    nucleotide_logits = self.classifer_dict[nucleotide](mapping_final_input[bz_indices, pos_indices])
+                    nucleotide_logits = nucleotide_logits.to(logits.dtype)
+                    logits.index_put_((bz_indices, pos_indices), nucleotide_logits)
+        elif self.config.token_type == '6mer':
+            mapping_final_input = torch.zeros((batch_size, ori_length, final_input.shape[-1]), dtype=final_input.dtype, device=final_input.device)
+            mapping_final_input[:, 0, :] = final_input[:, 0, :]                 # [cls] token
+            for bz in range(batch_size):
+                value_length = torch.sum(attention_mask[bz, :]==1).item()
+                for i in range(1, value_length - 1):                           # exclude cls,sep token
+                    mapping_final_input[bz,i:i+6, :] += final_input[bz, i]
+                mapping_final_input[bz, value_length+5-1, :] = final_input[bz, value_length-1, :]   # [sep] token
+                
+        mapping_final_input = mapping_final_input * weight_mask.unsqueeze(2)
+        
+        if self.config.token_type == '6mer' or self.config.token_type =='single': 
+            logits = self.classifier(mapping_final_input)
+        
+        loss = None
+        if labels is not None:
+            logits = logits[:, 1:1+labels.size(1), :]
+            if self.config.problem_type is None:
+                if self.num_labels == 1:
+                    self.config.problem_type = "regression"
+                elif self.num_labels > 1 and (labels.dtype == torch.long or labels.dtype == torch.int):
+                    self.config.problem_type = "single_label_classification"
+                else:
+                    self.config.problem_type = "multi_label_classification"
+
+            if self.config.problem_type == "regression":
+                loss_fct = nn.MCRMSELoss()
+                
+                if self.num_labels == 1:
+                    loss = loss_fct(logits.squeeze(), labels.squeeze())
+                else:
+                    loss = loss_fct(logits, labels)
+            elif self.config.problem_type == "single_label_classification":
+                loss_fct = nn.CrossEntropyLoss()
+                loss = loss_fct(logits.reshape(-1, self.num_labels), labels.reshape(-1).long())
+
+        if not return_dict:
+            output = (logits,) + outputs[2:]
+            return ((loss,) + output) if loss is not None else output
+        
+        return SequenceClassifierOutput(
+            loss=loss,
+            logits=logits,
+            hidden_states=outputs[0],
+            attentions=None,
+        )
+
+
+class DNABERT2ForCRISPROffTarget(BertPreTrainedModel):
+    def __init__(self, config):
+        super().__init__(config)
+        self.num_labels = config.num_labels
+        self.config = config
+    
+        self.bert = BertModel(config)
+        self.classifier = nn.Linear(config.hidden_size*2, config.num_labels)
+
+        # Initialize weights and apply final processing
+        self.post_init()
+        
+    def forward(
+        self,
+        input_ids: Optional[torch.Tensor] = None,
+        attention_mask: Optional[torch.Tensor] = None,
+        token_type_ids: Optional[torch.Tensor] = None,
+        position_ids: Optional[torch.Tensor] = None,
+        head_mask: Optional[torch.Tensor] = None,
+        inputs_embeds: Optional[torch.Tensor] = None,
+        labels: Optional[torch.Tensor] = None,
+        output_attentions: Optional[bool] = None,
+        output_hidden_states: Optional[bool] = None,
+        return_dict: Optional[bool] = None,
+        target_input_ids: Optional[torch.Tensor] = None,
+        target_attention_mask: Optional[torch.Tensor] = None,
+    ) -> Union[Tuple[torch.Tensor], SequenceClassifierOutput]:
+        r"""
+        labels (`torch.LongTensor` of shape `(batch_size,)`, *optional*):
+            Labels for computing the sequence classification/regression loss. Indices should be in `[0, ...,
+            config.num_labels - 1]`. If `config.num_labels == 1` a regression loss is computed (Mean-Square loss), If
+            `config.num_labels > 1` a classification loss is computed (Cross-Entropy).
+        """
+        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+        
+        sgrna_out = self.bert(
+            input_ids,
+            attention_mask=attention_mask,
+            # token_type_ids=token_type_ids,
+            position_ids=position_ids,
+            head_mask=head_mask,
+            inputs_embeds=inputs_embeds,
+        )[1]
+        
+        target_out = self.bert(
+            target_input_ids,
+            attention_mask=target_attention_mask,
+            # token_type_ids=token_type_ids,
+            position_ids=position_ids,
+            head_mask=head_mask,
+            inputs_embeds=inputs_embeds,
+        )[1]
+        
+        final_input = torch.cat([sgrna_out,target_out],dim=-1)
+        logits = self.classifier(final_input)
+        
+        loss = None
+        if labels is not None:
+            if self.config.problem_type is None:
+                if self.num_labels == 1:
+                    self.config.problem_type = "regression"
+                elif self.num_labels > 1 and (labels.dtype == torch.long or labels.dtype == torch.int):
+                    self.config.problem_type = "single_label_classification"
+                else:
+                    self.config.problem_type = "multi_label_classification"
+            if self.config.problem_type == "regression":
+                loss_fct = nn.MSELoss()
+                if self.num_labels == 1:
+                    loss = loss_fct(logits.squeeze(), labels.squeeze())
+                else:
+                    loss = loss_fct(logits, labels)
+            elif self.config.problem_type == "single_label_classification":
+                loss_fct = nn.CrossEntropyLoss()
+                loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
+            elif self.config.problem_type == "multi_label_classification":
+                loss_fct = nn.BCEWithLogitsLoss()
+                loss = loss_fct(logits, labels)
+                
+        if not return_dict:
+            output = (logits,) + sgrna_out[2:]
+            return ((loss,) + output) if loss is not None else output
+        
+        return SequenceClassifierOutput(
+            loss=loss,
+            logits=logits,
+            hidden_states=None,
+            attentions=None,
+        )

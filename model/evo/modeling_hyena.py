@@ -156,10 +156,7 @@ class StripedHyenaForCausalLM(StripedHyenaPreTrainedModel):
                     past_key_values["mha"].seqlen_offset += 1
                     past_key_values["hyena"].seqlen_offset += 1
 
-                inputs = input_ids[
-                    :,
-                    -1:,
-                ]
+                inputs = input_ids[:, -1:]
 
         logits, past_key_values = self.backbone(
             inputs,
